@@ -472,6 +472,10 @@ which will not work if a firewall is running.
    the same terminal window in which uxplay was put into the background).   To quit, use ```ctrl-C fg ctrl-C``` to terminate
    the image viewer, bring ``uxplay`` into the foreground, and terminate it too.
 
+**-si _filename_** provides a file (where _filename_ can include a full path) used for output of "song info" stored as JSON
+   (from Apple Music, _etc._,) in audio-only ALAC mode.   This file is overwritten with the latest song metadata as
+   it arrives.   
+
 **-reset n** sets a limit of n consecutive timeout failures of the client to respond to ntp requests
    from the server (these are sent every 3 seconds to check if the client is still present).   After
    n failures, the client will be presumed to be offline, and the connection will be reset to allow a new

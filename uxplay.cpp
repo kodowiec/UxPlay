@@ -100,6 +100,7 @@ static unsigned char audio_type = 0x00;
 static unsigned char previous_audio_type = 0x00;
 static bool fullscreen = false;
 static std::string coverart_filename = "";
+static std::string songinfo_filename = "";
 static bool do_append_hostname = true;
 static bool use_random_hw_addr = false;
 static unsigned short display[5] = {0}, tcp[3] = {0}, udp[3] = {0};
@@ -121,7 +122,13 @@ size_t write_coverart(const char *filename, const void *image, size_t len) {
     fclose(fp);
     return count;
 }
-  
+
+size_t write_songinfo(const char *filename, const char *string, size_t len) {
+    FILE *fp = fopen(filename, "wb");
+    size_t count = fwrite(string, 1, len, fp);
+    fclose(fp);
+    return count;
+}
 
 void dump_audio_to_file(unsigned char *data, int datalen, unsigned char type) {
     if (!audio_dumpfile && audio_type != previous_audio_type) {
@@ -352,6 +359,7 @@ static void print_info (char *name) {
     printf("          choices: pulsesink,alsasink,osssink,oss4sink,osxaudiosink\n");
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
     printf("-ca <fn>  In Airplay Audio (ALAC) mode, write cover-art to file <fn>\n");
+    printf("-si <fn>  In Airplay Audio (ALAC) mode, write song metadata to file <fn>\n");
     printf("-reset n  Reset after 3n seconds client silence (default %d, 0=never)\n", NTP_TIMEOUT_LIMIT);
     printf("-nc       do Not Close video window when client stops mirroring\n");  
     printf("-FPSdata  Show video-streaming performance reports sent by client.\n");
@@ -678,7 +686,15 @@ void parse_arguments (int argc, char *argv[]) {
                 LOGE("option -ca must be followed by a filename for cover-art output");
                 exit(1);
             }
-        } else if (arg == "-bt709" ) {
+        } else if (arg  == "-si" ) {
+            if (option_has_value(i, argc, arg, argv[i+1])) {
+                songinfo_filename.erase();
+                songinfo_filename.append(argv[++i]);
+            } else {
+                LOGE("option -si must be followed by a filename for song info output");
+                exit(1);
+            }
+        }else if (arg == "-bt709" ) {
             bt709_fix = true;
         } else {
             LOGE("unknown option %s, stopping\n",argv[i]);
@@ -765,6 +781,12 @@ int main (int argc, char *argv[]) {
     if (coverart_filename.length()) {
         LOGI("any AirPlay audio cover-art will be written to file  %s",coverart_filename.c_str());
         write_coverart(coverart_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
+    }
+    if (songinfo_filename.length())
+    {
+        LOGI("any AirPlay audio song info will be written to file %s", songinfo_filename.c_str());
+        // well, it may be a bad practice but i can use that to write an empty file i guess?
+        write_songinfo(songinfo_filename.c_str(), (const char *) "", sizeof(empty_image));
     }
 
     connections_stopped = true;
@@ -924,6 +946,11 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
     if (coverart_filename.length()) {
         write_coverart(coverart_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
     }
+    if (songinfo_filename.length())
+    {
+        // well, it may be a bad practice but i can use that to write an empty file i guess?
+        write_coverart(songinfo_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
+    }
 }
 
 extern "C" void video_report_size(void *cls, float *width_source, float *height_source, float *width, float *height) {
@@ -944,33 +971,51 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
         const char *tag = (const char *) buffer;
         int len;
         metadata += 4;
+        bool towrite = false;
+        std::string songinfofilecontent = "{";
         for (int i = 4; i < buflen; i++) {
             if (memcmp (metadata, mark, 3) == 0 && (len = (int) *(metadata + 3))) { 
                 bool found_text = true;
                 if (strcmp (tag, "asal") == 0) {
                     printf("Album: ");
+                    songinfofilecontent = songinfofilecontent + " \"Album\": ";
                 } else if (strcmp (tag, "asar") == 0) {
                     printf("Artist: ");
+                    songinfofilecontent = songinfofilecontent + " \"Artist\": ";
                 } else if (strcmp (tag, "ascp") == 0) {
                     printf("Composer: ");
+                    songinfofilecontent = songinfofilecontent + " \"Composer\": ";
                 } else if (strcmp (tag, "asgn") == 0) {
                     printf("Genre: ");
+                    songinfofilecontent = songinfofilecontent + " \"Genre\": ";
                 } else if (strcmp (tag, "minm") == 0) {
                     printf("Title: ");
+                    songinfofilecontent = songinfofilecontent + " \"Title\": ";
                 } else {
                     found_text = false;
                 }
                 if (found_text) {
+                    songinfofilecontent = songinfofilecontent + '"';
                     const unsigned char *text = metadata + 4;
                     for (int j = 0; j < len; j++) {
+                        songinfofilecontent += *text;
                         printf("%c", *text);
                         text++;
                     }
                     printf("\n");
+                    songinfofilecontent = songinfofilecontent + '"';
+                    songinfofilecontent = songinfofilecontent + ',';
                 }
             }
             metadata++;
             tag++;
+        }
+        songinfofilecontent.pop_back();
+        songinfofilecontent = songinfofilecontent + " }";
+
+        if (songinfo_filename.length())
+        {
+            write_songinfo(songinfo_filename.c_str(), songinfofilecontent.c_str(), songinfofilecontent.size());
         }
     }
 }
